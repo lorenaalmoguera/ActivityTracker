@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# VS Code and JetBrains
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Log and debug files
+*.log
+
+# JSON data (persistent storage)
+*.json
+
+# Only track JSON schema if needed:
+# !character_schema.json
+
+# Cache
+.cache/
+*.sqlite3
+
+# Ignore test exports or temp files
+*.bak
+*.tmp
+
+# Optional: compiled C or C++ cache
+*.so
+*.dll
+*.o
+*.a
+
+# Ignore your requirements if dynamically generated
+pip-selfcheck.json
