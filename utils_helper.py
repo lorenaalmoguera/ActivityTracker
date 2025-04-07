@@ -79,3 +79,70 @@ async def give_mun_role(member):
 def resolve_user_display_name(guild, user_id):
     member = guild.get_member(user_id)
     return member.display_name if member else str(user_id)
+
+
+import unicodedata
+import re
+
+def normalize_alias(text):
+    """
+    Normalize unicode text to remove stylized fonts, accents, symbols, etc.
+    Converts to plain lowercase ASCII.
+    """
+    # Convert full-width and stylized characters to standard
+    text = unicodedata.normalize('NFKD', text)
+    
+    # Remove diacritics (accents)
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+
+    # Remove emojis and symbols
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'[\u2600-\u26FF\u2700-\u27BF]+', '', text)  # Remove misc symbols
+    text = re.sub(r'[^\x00-\x7F]', '', text)  # Keep only ASCII
+
+    # Remove extra spaces and convert to lowercase
+    return text.lower().strip()
+
+
+from storage import load_users
+from storage import users_data
+def save_users_warnings(data=None):
+    from config import USERS_FILE  # or hardcode "users.json" if preferred
+    if data is None:
+        data = users_data
+    save_json(USERS_FILE, data)
+
+
+async def reset_warnings_for_user(interaction: discord.Interaction, user: discord.Member):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+
+    users = load_users()
+
+    user_id_str = str(user.id)
+    if user_id_str not in users:
+        await interaction.response.send_message(f"⚠️ User {user.mention} is not found in the system.", ephemeral=True)
+        return
+
+    users[user_id_str]["warnings"] = 0
+    save_users_warnings(users)
+
+    await interaction.response.send_message(f"✅ {user.mention}'s warnings have been reset to 0.", ephemeral=True)
+
+
+# Command to reset warnings for all users
+
+async def reset_warnings_for_all(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+
+    users = load_users()
+
+    for uid, data in users.items():
+        data["warnings"] = 0
+
+    save_users_warnings(users)
+
+    await interaction.response.send_message("✅ All users' warnings have been reset to 0.", ephemeral=True)

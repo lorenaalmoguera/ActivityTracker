@@ -16,14 +16,15 @@ from admin import (
     delchar_logic, 
     accept_logic,   
     viewall_command,
-    hiatus_logic
+    hiatus_logic,
+    viewinactive_logic
 )
-from tracking import viewinactive_logic, handle_message_activity, generate_weekly_report_embed
+from tracking import handle_message_activity, generate_weekly_report_embed
 from storage import load_data, save_data, load_characters, save_characters, delete_character_by_name, users_data, save_users, get_character_owner, remove_character, tracking_data, still_has_characters, character_owners, registered_characters, admin_tracked_categories
 from datetime import datetime, timedelta
 from config import ADMIN_ALERT_CHANNEL_ID, ARCHIVE_CATEGORY_ID, MUN_ROLE_ID, CHARACTER_FILE
 from utils_helper import get_forum_channel_from_link, save_json
-from state import characters_data, category_data, tracking_data
+from state import characters_data, category_data, tracking_data, pause_activity_function, resume_activity_function
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 from state import inactivity_tracker
@@ -31,7 +32,6 @@ from storage import save_inactivity_tracker
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
 now = datetime.now(timezone.utc)
-
 recent_dms = {}
 
 
@@ -41,29 +41,35 @@ recent_dms = {}
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("Pong!", ephemeral=True)
 
-@client.tree.command(name="trackforum", description="Add a forum category to be tracked for admin reports")
-async def trackforum(interaction: discord.Interaction, category: discord.ForumChannel):
-    await trackforum_logic(interaction, category)
+## TRACK FORUM COMMAND ##
+#@client.tree.command(name="trackforum", description="Add a forum category to be tracked for admin reports")
+#async def trackforum(interaction: discord.Interaction, category: discord.ForumChannel):
+#    await trackforum_logic(interaction, category)
 
-@client.tree.command(name="cleardata", description="Clear all tracking and character data (admin only)")
-async def cleardata(interaction: discord.Interaction, confirm: bool = False):
-    await cleardata_logic(interaction, confirm)
+## CLEAR DATA COMMAND ##
+#@client.tree.command(name="cleardata", description="Clear all tracking and character data (admin only)")
+#async def cleardata(interaction: discord.Interaction, confirm: bool = False):
+#    await cleardata_logic(interaction, confirm)
 
-@client.tree.command(name="viewinactive", description="List characters inactive for more than 3 days (Admin Only)")
-async def viewinactive(interaction: discord.Interaction):
-    await viewinactive_logic(interaction)
+## VIEW INACTIVE COMMAND ##
+#@client.tree.command(name="viewinactive", description="List characters inactive for more than 3 days (Admin Only)")
+#async def viewinactive(interaction: discord.Interaction):
+#    await viewinactive_logic(interaction)
 
+## GIVE CHARACTER COMMAND ##
 @client.tree.command(name="givechar", description="Assign a character to a user (Admin Only)")
 @app_commands.describe(character="Character name (Tupper)", user="User to assign the character to")
 async def givechar(interaction: discord.Interaction, character: str, user: discord.Member):
     from admin import givechar_logic
     await givechar_logic(interaction, character, user)
 
+## RENAME CHARACTER COMMAND ##
 @client.tree.command(name="renamechar", description="Rename a character (Admin Only)")
 @app_commands.describe(old_name="Current character name", new_name="New character name")
 async def renamechar(interaction: discord.Interaction, old_name: str, new_name: str):
     await renamechar_logic(interaction, old_name, new_name)
 
+## DELETE CHARACTER COMMAND ##
 @client.tree.command(name="delchar", description="Delete a character and archive their forum")
 @app_commands.describe(name_or_owner="Character name or alias", confirm="Type true to confirm deletion")
 async def delchar(interaction: discord.Interaction, name_or_owner: str, confirm: bool = False):
@@ -72,27 +78,48 @@ async def delchar(interaction: discord.Interaction, name_or_owner: str, confirm:
         await interaction.response.send_message(result, ephemeral=True)
 
 
+## ACCEPT COMMAND ##
 @client.tree.command(name="accept", description="Accept a new user and start 48h setup timer")
 @app_commands.describe(user="User to accept", forum_post="Forum post link")
 async def accept_command(interaction: discord.Interaction, user: discord.Member, forum_post: str):
     await accept_logic(interaction, user, forum_post)
 
+## VIEWALL COMMAND ##
 @client.tree.command(name="viewall", description="List all characters or filter by owner/alias/name")
 @app_commands.describe(filter="Optional filter: character name, alias or owner ID")
 async def viewall(interaction: discord.Interaction, filter: str = None):
     
     await viewall_command(interaction, filter)
 
-
+## HIATUS COMMAND ##
 @client.tree.command(name="hiatus", description="Put a user on hiatus for X days")
 @app_commands.describe(user="User to put on hiatus", days="Number of days")
 async def hiatus_command(interaction: discord.Interaction, user: discord.Member, days: int):
     await hiatus_logic(interaction, user, days)
 
+from utils_helper import reset_warnings_for_user, reset_warnings_for_all
+# Command to reset warnings for a specific user
+# Command to reset warnings for a specific user
+@client.tree.command(name="resetwarnings", description="Reset the warnings of a specific user")
+@app_commands.describe(user="The user to reset warnings for")
+async def reset_warnings_for_user_command(interaction: discord.Interaction, user: discord.Member):
+    await reset_warnings_for_user(interaction, user)
+
+
+from tracking import viewusers_logic
+@client.tree.command(name="viewwarnings", description="Admin-only: View all users with warnings and characters")
+async def viewusers_command(interaction: discord.Interaction):
+    await viewusers_logic(interaction)
+
+# Command to reset warnings for all users
+@client.tree.command(name="resetallwarnings", description="Reset the warnings of all users")
+async def reset_warnings_for_all_command(interaction: discord.Interaction):
+    await reset_warnings_for_all(interaction)
 from discord import app_commands
 from datetime import datetime, timezone, timedelta
 from state import characters_data
 
+## TRACKING COMMAND ##
 @client.tree.command(name="tracking", description="See your character threads and whose turn it is.")
 async def tracking(interaction: discord.Interaction):
     from datetime import datetime, timezone, timedelta
@@ -174,58 +201,116 @@ async def tracking(interaction: discord.Interaction):
 
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
+## PAUSE/RESUME ACTIVITY CHECKS ##
+@client.tree.command(name="pauseactivity", description="Pause all activity checks for everyone.")
+async def pause_activity_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+    
+    pause_activity_function()  # Pause activity checks
+    await interaction.response.send_message("✅ Activity checks have been paused.", ephemeral=True)
+
+@client.tree.command(name="resumeactivity", description="Resume all activity checks for everyone.")
+async def resume_activity_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+    
+    resume_activity_function()  # Resume activity checks
+    await interaction.response.send_message("✅ Activity checks have been resumed.", ephemeral=True)
 
 from tracking import track_inactivity_response, track_inactivity_response_edit, track_inactivity_response_delete
 ## ON MESSAGE TRACKING ##
+@client.event
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
 
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    # ✅ Handle DMs from muns
     if isinstance(message.channel, discord.DMChannel):
         user_id = str(message.author.id)
 
-        # Cache recent DM for deletion tracking
+        # Cache for edit/delete tracking
         if user_id not in recent_dms:
             recent_dms[user_id] = deque(maxlen=10)
         recent_dms[user_id].append((message.id, message.content))
 
         await track_inactivity_response(message)
 
-        from datetime import datetime, timezone
-        from config import ADMIN_ALERT_CHANNEL_ID
         from state import inactivity_tracker
         from storage import save_inactivity_tracker
+        from config import ADMIN_ALERT_CHANNEL_ID
 
-        now = datetime.now(timezone.utc)
+        matched_characters = []
 
         for char_name, info in inactivity_tracker.items():
-            if str(info["owner"]) == user_id and not info.get("responded", False):
+            if str(info.get("owner")) == user_id:
                 info["responded"] = True
                 info["responded_at"] = now.isoformat()
-                info.setdefault("responses", []).append(message.content)
+                info.setdefault("responses", []).append({
+                    "message": message.content,
+                    "timestamp": now.isoformat()
+                })
+                matched_characters.append(char_name)
+
+        if matched_characters:
+            save_inactivity_tracker()
+
+            alert_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+            if matched_characters:
+                alert_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+
+                def format_names(names):
+                    if len(names) == 1:
+                        return names[0]
+                    elif len(names) == 2:
+                        return f"{names[0]} and {names[1]}"
+                    else:
+                        return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+                formatted_names = format_names(matched_characters)
+                view = None
+
+                # Pick the first matched character to anchor the reply button
+                primary_char = matched_characters[0]
+                tracked = inactivity_tracker[primary_char]
+
+                if not tracked.get("reply_button_sent", False):
+                    view = AdminReplyView(primary_char, user_id)
+                    tracked["reply_button_sent"] = True
+                
                 save_inactivity_tracker()
 
-                alert_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
                 if alert_channel:
                     await alert_channel.send(
-                        f"📩 **{char_name}**'s owner (<@{user_id}>) replied:\n> {message.content}"
+                        f"📩 **{formatted_names}**'s owner (<@{user_id}>) replied:\n> {message.content}",
+                        view=view
                     )
-                print(f"[DM] {char_name}'s owner ({user_id}) replied:\n> {message.content}")
-                break
 
+                print(f"[DM] <@{user_id}> replied for {matched_characters}: {message.content}")
+
+
+            print(f"[DM] <@{user_id}> replied for {matched_characters}: {message.content}")
+
+    # ✅ Handle Tupper messages in guild (unchanged)
     elif message.guild is not None:
         await handle_message_activity(message)
 
     await client.process_commands(message)
 
 
+## EDITED MESSAGE TRACKING ##
 @client.event
 async def on_message_edit(before, after):
     if isinstance(after.channel, discord.DMChannel):
         user_id = str(after.author.id)
 
-        # Update cached DM for deletion tracking
+        # Update recent DM cache
         if user_id in recent_dms:
             for i, (msg_id, _) in enumerate(recent_dms[user_id]):
                 if msg_id == before.id:
@@ -237,29 +322,35 @@ async def on_message_edit(before, after):
         from storage import save_inactivity_tracker
         from config import ADMIN_ALERT_CHANNEL_ID
 
-        for name, data in inactivity_tracker.items():
-            if str(after.author.id) == str(data["owner"]):
-                data.setdefault("responses", []).append({
+        now = datetime.now(timezone.utc)
+
+        for char_name, info in inactivity_tracker.items():
+            if str(info.get("owner")) == user_id:
+                info.setdefault("responses", []).append({
                     "message": f"[EDITED] {after.content}",
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "timestamp": now.isoformat()
                 })
+
                 save_inactivity_tracker()
+
                 channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
                 if channel:
                     await channel.send(
-                        f"✏️ **{name}**’s mun <@{after.author.id}> edited their reply:\n"
+                        f"✏️ **{char_name}**’s mun <@{user_id}> edited their reply:\n"
                         f"**Before:** {before.content}\n**After:** {after.content}"
                     )
-                print(f"[DM-EDIT] {name}’s owner ({after.author.id}) edited their reply:")
+                print(f"[DM-EDIT] {char_name}’s owner ({user_id}) edited their reply:")
                 print(f"> Before: {before.content}")
                 print(f"> After : {after.content}")
 
+## DELETED MESSAGE TRACKING ##
 @client.event
 async def on_message_delete(message):
     if isinstance(message.channel, discord.DMChannel):
         user_id = str(message.author.id)
         deleted_text = "[unknown]"
 
+        # Try to find message content from recent cache
         for msg_id, content in recent_dms.get(user_id, []):
             if msg_id == message.id:
                 deleted_text = content
@@ -270,23 +361,28 @@ async def on_message_delete(message):
         from storage import save_inactivity_tracker
         from config import ADMIN_ALERT_CHANNEL_ID
 
-        for name, data in inactivity_tracker.items():
-            if str(message.author.id) == str(data["owner"]):
-                data.setdefault("responses", []).append({
+        now = datetime.now(timezone.utc)
+
+        for char_name, info in inactivity_tracker.items():
+            if str(info.get("owner")) == user_id:
+                info.setdefault("responses", []).append({
                     "message": f"[DELETED] {deleted_text}",
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "timestamp": now.isoformat()
                 })
+
                 save_inactivity_tracker()
+
                 channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
                 if channel:
                     await channel.send(
-                        f"🗑️ **{name}**’s mun <@{message.author.id}> deleted their reply:\n"
+                        f"🗑️ **{char_name}**’s mun <@{user_id}> deleted their reply:\n"
                         f"**Deleted Message:** {deleted_text}"
                     )
-                print(f"[DM-DELETE] {name}’s owner ({message.author.id}) deleted a reply:")
+                print(f"[DM-DELETE] {char_name}’s owner ({user_id}) deleted a reply:")
                 print(f"> Deleted Message: {deleted_text}")
 
 
+## THREAD CREATION TRACKING ##
 async def handle_thread_creation(thread):
     print(f"🔧 handle_thread_creation called for: {thread.name} ({thread.id})")
 
@@ -344,7 +440,6 @@ async def handle_thread_creation(thread):
 
 
 ## SENDS ADMIN UPDATES BEFORE RESTARTING TRACKER ##
-
 @tasks.loop(hours=24)
 async def reset_weekly_activity():
     from datetime import timezone
@@ -372,11 +467,127 @@ async def reset_weekly_activity():
 
 @client.tree.command(name="weeklyactive", description="View weekly activity report by owner")
 async def weekly_active_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+
     embed = generate_weekly_report_embed(interaction.guild)
     await interaction.response.send_message(embed=embed)
 
-## BUTTONS FOR CHECKING SETUP ##
+#allows us to reply to the mun in dms
+class AdminReplyView(discord.ui.View):
+    def __init__(self, char_name, user_id):
+        super().__init__(timeout=None)
+        self.char_name = char_name
+        self.user_id = user_id
 
+    @discord.ui.button(label="Reply to Mun", style=discord.ButtonStyle.primary, custom_id="admin_reply_button")
+    async def reply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AdminReplyModal(self.char_name, self.user_id))
+
+
+class AdminReplyModal(discord.ui.Modal, title="Reply to Mun"):
+    def __init__(self, char_name, user_id):
+        super().__init__()
+        self.char_name = char_name
+        self.user_id = user_id
+
+        self.response_input = discord.ui.TextInput(
+            label="Your message",
+            style=discord.TextStyle.paragraph,
+            placeholder="Type the message to send to the mun...",
+            max_length=2000,
+            required=True
+        )
+        self.add_item(self.response_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        response_text = self.response_input.value
+
+        try:
+            user = await interaction.client.fetch_user(self.user_id)
+            await user.send(
+                f"📬 **Mod reply about your character _{self.char_name}_**:\n> {response_text}"
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to DM user <@{self.user_id}>: {e}", ephemeral=True
+            )
+            return
+
+        # Log the mod response
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        tracked = inactivity_tracker.get(self.char_name)
+        if tracked:
+            tracked.setdefault("responses", []).append({
+                "message": f"[MOD REPLY] {response_text}",
+                "timestamp": now
+            })
+            save_inactivity_tracker()
+
+        # ✅ Reply in admin channel with the message and "Send another" button
+        view = AdminReplyView(self.char_name, self.user_id)
+        await interaction.response.send_message(
+            f"✅ Reply sent and logged!\n\n"
+            f"📬 You said:\n> {response_text}\n\n"
+            f"🔁 Want to send another?",
+            view=view,
+            ephemeral=False  # or True if you want it hidden
+        )
+
+
+## SEND DM TO USER ##
+@client.tree.command(name="dm_user", description="Manually DM a mun about their character.")
+@app_commands.describe(character="Name of the character (Tupper name)", message="Message to send to the user")
+async def dm_user(interaction: discord.Interaction, character: str, message: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+
+    tracked = inactivity_tracker.get(character)
+    if not tracked:
+        await interaction.response.send_message(f"⚠️ No entry found for character: `{character}`.", ephemeral=True)
+        return
+
+    owner_id = tracked.get("owner")
+    if not owner_id:
+        await interaction.response.send_message(f"⚠️ Character `{character}` has no owner.", ephemeral=True)
+        return
+
+    try:
+        user = await client.fetch_user(owner_id)
+        await user.send(f"📬 **Mod Message about your character _{character}_**:\n> {message}")
+
+        # ✅ Log it
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        tracked.setdefault("responses", []).append({
+            "message": f"[MANUAL MOD MESSAGE] {message}",
+            "timestamp": now
+        })
+        save_inactivity_tracker()
+
+        # ✅ Forward to the activity channel
+        activity_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+        if activity_channel:
+            await activity_channel.send(
+                f"📤 **Manual DM sent** by {interaction.user.mention} regarding **{character}**:\n"
+                f"> {message}"
+            )
+
+        await interaction.response.send_message(
+            f"✅ DM sent to <@{owner_id}> and logged under `{character}`.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Failed to DM user: {e}", ephemeral=True)
+
+
+## BUTTONS FOR CHECKING SETUP ##
 class CheckSetupButtons(discord.ui.View):
     def __init__(self, user_id, forum_key):
         super().__init__(timeout=None)
@@ -453,8 +664,7 @@ class CheckSetupButtons(discord.ui.View):
             f"✅ Check-up for `{forum_name}` and <@{self.user_id}> finished!"
         )
 
-
-
+## CHECK USER SETUP TIMERS ##
 @tasks.loop(minutes=30)
 async def check_user_setup_timers():
     await client.wait_until_ready()

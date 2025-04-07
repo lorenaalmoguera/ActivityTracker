@@ -8,7 +8,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 INACTIVITY_TRACKER_FILE = os.path.join(BASE_DIR, "data", "inactivity_dm_tracker.json")
-TRACK_FILE = os.path.join(BASE_DIR, "data", "tracking_data.json")
+TRACK_FILE = os.path.join(BASE_DIR, "data", "state.json")
 CHARACTER_FILE = os.path.join(BASE_DIR, "data", "character_data.json")
 CATEGORY_FILE = os.path.join(BASE_DIR, "data", "category_data.json")
 USERS_FILE = os.path.join(BASE_DIR, "data", "users.json")

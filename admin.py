@@ -40,12 +40,32 @@ async def hiatus_logic(interaction: discord.Interaction, user: discord.User, day
 
     users[uid]["hiatus_until"] = until.isoformat()
     users_data.update(users)
-    save_users() 
+    save_users()
 
     await interaction.response.send_message(
         f"✅ {user.mention} is now on hiatus until `{until.strftime('%Y-%m-%d %H:%M UTC')}`.",
         ephemeral=True
     )
+
+    # 📨 DM the user
+    try:
+        await user.send(
+            f"🌴 You’ve been placed on **hiatus** for {days} days by the moderators.\n"
+            f"You won't be marked inactive until `{until.strftime('%Y-%m-%d %H:%M UTC')}`.\n"
+            f"If you need to return early or extend it, feel free to reply here."
+        )
+    except discord.Forbidden:
+        print(f"⚠️ Could not DM {user} about hiatus.")
+
+    # 📝 Log to mod activity channel
+    
+    channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+    if channel:
+        await channel.send(
+            f"📌 {user.mention} was placed on hiatus for **{days} days** "
+            f"(until `{until.strftime('%Y-%m-%d')}`) by {interaction.user.mention}."
+        )
+
 
 async def trackforum_logic(interaction: discord.Interaction, category: discord.ForumChannel):
     if not interaction.user.guild_permissions.administrator:
@@ -140,21 +160,41 @@ async def givechar_logic(interaction: discord.Interaction, character: str, user:
     )
 
 
-# Add debug prints to verify function execution
 async def renamechar_logic(interaction: discord.Interaction, old_name: str, new_name: str):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ You must be an administrator to use this command.",
+            ephemeral=True
+        )
         return
 
-    # Asignar el nuevo alias en ambos diccionarios
-    character_aliases[old_name] = new_name
-    characters_data["aliases"][old_name] = new_name  # <-- esto es lo que se guarda en el JSON
+    # 🔍 Check if the old character exists
+    if old_name not in characters_data.get("activity", {}):
+        await interaction.response.send_message(
+            f"⚠️ Character **{old_name}** does not exist. Use `/viewall` to confirm the name.",
+            ephemeral=True
+        )
+        return
 
-    save_characters()  # ¡Asegúrate de guardar los cambios!
+    # 🚫 Prevent renaming to an already existing character
+    if new_name in characters_data.get("activity", {}):
+        await interaction.response.send_message(
+            f"⚠️ A character named **{new_name}** already exists. Please choose a different name.",
+            ephemeral=True
+        )
+        return
+
+    # ✅ Proceed with renaming
+    character_aliases[old_name] = new_name
+    characters_data["aliases"][old_name] = new_name
+
+    save_characters()
 
     await interaction.response.send_message(
-        f"✅ Character `{old_name}` has been renamed to `{new_name}` (alias updated).", ephemeral=True
+        f"✅ Character `{old_name}` has been renamed to `{new_name}` (alias updated).",
+        ephemeral=True
     )
+
 
 
 
@@ -212,13 +252,30 @@ async def archive_forum_of_character(base_name):
 
 # Add debug prints to verify function execution
 async def delchar_logic(interaction: discord.Interaction, input_name: str, guild: discord.Guild, confirm: bool):
+    from state import characters_data
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
         return
     if not confirm:
         return "⚠️ You must confirm the deletion by setting `confirm=True`."
 
-    from state import characters_data
+    full_name = None
+    if input_name in characters_data.get("owners", {}):
+        full_name = input_name
+    else:
+        for char, alias in characters_data.get("aliases", {}).items():
+            if alias.lower() == input_name.lower():
+                full_name = char
+                break
+
+    if not full_name or full_name not in characters_data.get("activity", {}):
+        await interaction.response.send_message(
+            f"⚠️ Character **{input_name}** does not exist. Please check the name or use `/viewall` to confirm.",
+            ephemeral=True
+        )
+        return
+
+    
     from storage import save_characters, users_data, save_users
     from config import ARCHIVE_CATEGORY_ID, MUN_ROLE_ID
     from utils_helper import get_forum_channel_from_link
@@ -430,7 +487,7 @@ async def trackforum(interaction: discord.Interaction, category: discord.ForumCh
     await trackforum_logic(interaction, category)
 
 @client.tree.command(name="inactivity", description="List characters inactive for more than 3 days (Admin Only)")
-async def viewinactive(interaction: discord.Interaction):
+async def viewinactive_logic(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ **You must be an administrator to use this command.**", ephemeral=True)
         return
