@@ -474,6 +474,41 @@ async def weekly_active_command(interaction: discord.Interaction):
     embed = generate_weekly_report_embed(interaction.guild)
     await interaction.response.send_message(embed=embed)
 
+@client.tree.command(name="reject", description="Reject a user and notify them privately")
+@app_commands.describe(user="User to reject", reason="Reason for rejection")
+async def reject_command(interaction: discord.Interaction, user: discord.Member, reason: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be an administrator to use this command.", ephemeral=True)
+        return
+
+    # Notify the user privately via DM
+    try:
+        await user.send(
+            f"🚫 Hi {user.display_name}, your application to **CRESTFALL** has been rejected.\n"
+            f"**Reason:** {reason}\n"
+            f"If you have any questions, feel free to contact the moderators."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"⚠️ Could not DM {user.mention}. They might have DMs disabled.",
+            ephemeral=True
+        )
+
+    # Log the rejection in the activity channel
+    activity_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+    if activity_channel:
+        await activity_channel.send(
+            f"🚫 **{user.mention}** has been rejected by {interaction.user.mention}.\n"
+            f"**Reason:** {reason}"
+        )
+
+    # Confirm the rejection to the admin
+    await interaction.response.send_message(
+        f"✅ {user.mention} has been rejected and notified via DM.",
+        ephemeral=True
+    )
+
+
 #allows us to reply to the mun in dms
 class AdminReplyView(discord.ui.View):
     def __init__(self, char_name, user_id):
@@ -690,29 +725,64 @@ async def check_user_setup_timers():
                     forum_data["checked"] = True
                     save_users()
 
+@tasks.loop(minutes=5)
+async def upload_json_backups():
+    await client.wait_until_ready()
+    backup_channel = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+    if not backup_channel:
+        print("❌ Backup channel not found!")
+        return
+
+    files = []
+    paths = [
+        "data/character_data.json",
+        "data/users.json",
+        "data/inactivity_dm_tracker.json",
+        "data/category_data.json"
+    ]
+
+    for path in paths:
+        if os.path.exists(path):
+            files.append(discord.File(path))
+        else:
+            print(f"⚠️ File not found: {path}")
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    await backup_channel.send(content=f"📦 JSON backup at `{timestamp}`", files=files)
+    print("✅ Uploaded JSON backups to Discord.")
 
 
 from tracking import check_inactive_characters
+from config import MOD_ROLE_ID
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-    print("Available commands:")
-    for command in client.tree.get_commands():
-        print(f"- {command.name}: {command.description}")
+
+    # 🔔 Notify mods
+    activity_champion = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
+    if activity_champion:
+        mod_mention = f"<@&{MOD_ROLE_ID}>"
+        await activity_champion.send(f"🟢 Bot is now online and running! {mod_mention}")
+
+    # 🕵️ Start timers if not running
     if not check_user_setup_timers.is_running():
         check_user_setup_timers.start()
-    
+
     if not reset_weekly_activity.is_running():
         reset_weekly_activity.start()
-    # Synchronize the command tree with Discord
-    print(f"✅ Logged in as {client.user}")
+
+    if not upload_json_backups.is_running():
+        upload_json_backups.start()
+
+    # 🧠 Start inactivity check (only once)
     if not hasattr(client, "inactivity_started"):
-        from tracking import check_inactive_characters
-        client.loop.create_task(check_inactive_characters(client))  # 👈 pass client here!
+        client.loop.create_task(check_inactive_characters(client))
         client.inactivity_started = True
+
+    # 🔁 Sync command tree
     await client.tree.sync()
-    # Start the background task
-    
+
+    print("✅ Ready and fully synced.") 
 
 
 

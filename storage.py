@@ -189,8 +189,6 @@ async def delete_character_by_name(base_name: str):
     from storage import characters_data, character_aliases, character_owners, tracking_data
     from storage import save_characters, save_data
 
-
-
     names_to_remove = {base_name}
     for alias, target in character_aliases.items():
         if target == base_name:
