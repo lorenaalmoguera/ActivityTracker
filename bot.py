@@ -753,7 +753,7 @@ async def upload_json_backups():
 
 
 from tracking import check_inactive_characters
-from config import MOD_ROLE_ID
+from config import MODERATOR_ROLE_ID
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
@@ -761,7 +761,7 @@ async def on_ready():
     # 🔔 Notify mods
     activity_champion = client.get_channel(ADMIN_ALERT_CHANNEL_ID)
     if activity_champion:
-        mod_mention = f"<@&{MOD_ROLE_ID}>"
+        mod_mention = f"<@&{MODERATOR_ROLE_ID}>"
         await activity_champion.send(f"🟢 Bot is now online and running! {mod_mention}")
 
     # 🕵️ Start timers if not running
